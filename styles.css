@@ -1,0 +1,125 @@
+/* 抖音逐帧控制 - 样式 */
+
+#frame-control-panel {
+  transition: box-shadow 0.2s, opacity 0.2s;
+  /* 面板底色、间距、帧信息不参与交互，让点击穿透回播放器 */
+  pointer-events: none;
+}
+
+#frame-control-panel button,
+#frame-control-panel .frame-control-drag-handle {
+  pointer-events: auto;
+}
+
+#frame-control-panel .frame-control-drag-handle {
+  cursor: grab;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#frame-control-panel .frame-control-drag-handle:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+#frame-control-panel .frame-control-drag-handle:active {
+  cursor: grabbing;
+}
+
+#frame-control-panel .drag-dots {
+  letter-spacing: -2px;
+  pointer-events: none;
+}
+
+#frame-control-panel .frame-control-group {
+  display: flex;
+  gap: 10px;
+}
+
+#frame-control-panel button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 70px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* 按钮上的快捷键标记 */
+#frame-control-panel .key-badge {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+#frame-control-panel button.secondary-btn {
+  min-width: auto;
+  padding: 8px 12px;
+  font-size: 16px;
+}
+
+#frame-control-panel button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+#frame-control-panel button:active {
+  transform: translateY(0);
+}
+
+#frame-control-panel .frame-control-info {
+  color: #fff;
+  font-size: 12px;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+/* 键盘快捷键提示 */
+#frame-control-hint {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  z-index: 999998;
+  opacity: 0;
+  transition: opacity 0.3s, visibility 0.3s;
+  /* 隐藏时元素仍在 DOM 中，必须让它对鼠标透明，否则会挡住播放器点击 */
+  pointer-events: none;
+  visibility: hidden;
+}
+
+#frame-control-hint.visible {
+  opacity: 1;
+  visibility: visible;
+}
