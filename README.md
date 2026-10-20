@@ -153,8 +153,31 @@ douyin-frame-control/
 ├── popup.html       # 扩展弹出页面
 ├── popup.js         # 弹出页面脚本
 ├── styles.css       # 样式文件
+├── icons/           # 扩展图标，由 tools/make-icons.ps1 生成
+├── tools/           # 出图脚本
 └── README.md        # 本文档
 ```
+
+### 图标
+
+深色圆角磁贴 + 一张竖版白色卡片（276x312，和姊妹扩展「图文取图」同比例、同轮廓），卡片里用**负空间**挖出逐帧步进的 `|▶`；卡片和磁贴边框都偏一道抖音青 `#42D2CB` / 品红 `#FE2C55`（抖音的色差错位质感）。两个扩展因此成一对：一样的磁贴和卡片轮廓，只是挖空的符号不同——这边是步进 `|▶`（逐帧），那边是下载箭头（取图）。
+
+没用汉字（密集笔画 40px 以下必糊），也没用最初的横屏 16:9 胶片格（在方形磁贴里显得矮胖），只留实心和负空间。Chrome 本地 unpacked 扩展最大只取到 48（工具栏和拼图菜单取 16，高分屏取 32，`chrome://extensions` 列表与详情页取 48），128 只有上架商店时才用，所以四档统一成同一个构图，只按尺寸调细节：
+
+| 尺寸 | shift 色差 | rimAlpha 边框双色 | weight 竖条笔画 | bar 步进竖条 |
+| --- | --- | --- | --- | --- |
+| 16 | 0 | 60 | 1.4 | 关（16px 放不下两个元素） |
+| 32 | 5 | 80 | 1.15 | 开 |
+| 48 | 8 | 100 | 1.0 | 开 |
+| 128 | 14 | 130 | 0.85 | 开 |
+
+改样式就编辑 `tools/make-icons.ps1` 里的 `$plans` 和 `$CYAN`/`$PINK`/`$INK`/`$TILE_*`，重跑：
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\make-icons.ps1
+```
+
+只用 Windows 自带的 GDI+（`System.Drawing`），无第三方依赖：先画 512 矢量母版再 `HighQualityBicubic` 降采样。改完要在 `chrome://extensions` **移除后重新加载**才会换图标，光点刷新 ↻ 常常不生效；manifest 的 `version` 可以用来确认到底加载了哪一版。
 
 ### 打包扩展
 如果需要发布到 Chrome Web Store：
