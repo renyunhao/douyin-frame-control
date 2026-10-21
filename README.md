@@ -13,7 +13,7 @@
   - `Space` - 暂停/播放
 - **可拖拽面板**：拖动控制面板到任意位置，位置自动保存
 - **智能暂停控制**：点击进度条后继续保持暂停状态
-- **悬浮控制面板**：显示当前帧和时间信息
+- **悬浮控制面板**：显示当前控制的视频（标题 + 分辨率）和帧、时间信息
 - **自动检测**：自动查找视频元素
 - **自适应**：支持抖音Web端各种播放器
 
@@ -50,10 +50,12 @@
 
 本扩展通过以下方式实现逐帧控制：
 
-### 1. 视频元素劫持
-- 在抖音页面中查找 `video` 元素
-- 监听视频时间更新事件
-- 注入自定义控制逻辑
+### 1. 控制目标选择
+- 页面里往往同时存在多个 `video`（网格卡片、预加载、弹层播放器），`document.querySelector('video')` 拿到的是 DOM 里第一个，不一定是你在看的那条
+- 因此按「视口内可见面积最大的 video」选目标，全都不可见时退回正在播放的那个
+- 重新选目标的三个时机：DOM 变化后 250ms（防抖）、点击后立刻、每 1s 兜底轮询
+- 弹层复用同一个 `video` 节点只换 `src` 时，也会刷新面板上的标题显示
+- 事件监听用 `WeakSet` 去重，同一个元素不会重复绑定
 
 ### 2. 时间精确控制
 - 使用 `videoElement.currentTime` API 精确设置时间
@@ -95,6 +97,15 @@ window.douyinFrameControl.getCurrentTime();
 // 手动步进（前进/后退）
 window.douyinFrameControl.stepFrame(1);  // 前进
 window.douyinFrameControl.stepFrame(-1); // 后退
+
+// 当前控制的目标是什么（标题、分辨率、时长、blob 源、可见面积）
+window.douyinFrameControl.getTargetInfo();
+
+// 列出页面上所有 video 候选，按可见面积看扩展为什么选了它
+window.douyinFrameControl.listCandidates();
+
+// 立刻重新扫描选择目标
+window.douyinFrameControl.rescan();
 ```
 
 ## 🔍 问题排查
@@ -114,6 +125,11 @@ window.douyinFrameControl.stepFrame(-1); // 后退
 3. **控制面板不显示**
    - 确保视频已加载
    - 手动检查是否有视频元素：`document.querySelector('video')`
+
+4. **控制到了别的视频（收藏夹/弹层/推荐流）**
+   - 面板第一行就是当前控制目标的标题和分辨率，先核对是不是你在看的那条
+   - 控制台跑 `douyinFrameControl.listCandidates()`，看每个 `video` 的 `area`，扩展选的是面积最大且 `isActive: true` 的那个
+   - 若确实选错，`douyinFrameControl.rescan()` 强制重选；还不对就把 `listCandidates()` 的输出发回来调整判定规则
 
 ### 调试步骤
 

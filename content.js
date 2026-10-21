@@ -23,25 +23,67 @@
   const FRAME_STEP = 0.04; // 约 25fps，一帧
 
   /**
-   * 查找页面中的视频元素
+   * 元素在视口内的可见面积
    */
-  function findVideoElement() {
-    // 尝试多种选择器
-    const selectors = [
-      'video',
-      '[class*="video"]',
-      '[class*="player"]',
-      '[data-video]'
-    ];
+  function visibleArea(el) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return 0;
+    const style = getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return 0;
+    const w = Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0);
+    const h = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+    return w > 0 && h > 0 ? w * h : 0;
+  }
 
-    for (const selector of selectors) {
-      const video = document.querySelector(selector);
-      if (video && video.tagName === 'VIDEO') {
-        return video;
+  /**
+   * 选出当前应该控制的视频：视口内面积最大的那个，其次是在播的那个。
+   * 抖音的网格卡片/预加载 video 排在 DOM 前面，所以不能再用 querySelector('video')。
+   */
+  function pickActiveVideo() {
+    const videos = Array.from(document.querySelectorAll('video'));
+    if (videos.length === 0) return null;
+
+    let best = null;
+    let bestArea = 0;
+    for (const video of videos) {
+      const area = visibleArea(video);
+      if (area > bestArea) {
+        bestArea = area;
+        best = video;
       }
     }
+    if (best) return best;
 
-    return null;
+    // 全都不可见时（例如后台标签页），退回在播的那个
+    return videos.find(v => !v.paused && !v.ended) || null;
+  }
+
+  /**
+   * 找到只包住这一个 video 的最小容器，用来定位它自己的标题
+   */
+  function getPlayerContainer(video) {
+    let node = video.parentElement;
+    let last = node;
+    while (node && node !== document.body && node.querySelectorAll('video').length === 1) {
+      last = node;
+      node = node.parentElement;
+    }
+    return last || document;
+  }
+
+  /**
+   * 取当前控制目标的标题，尽力而为，失败则留空
+   */
+  function getVideoLabel(video) {
+    const scope = getPlayerContainer(video);
+    // 按可信度依次找；超过 120 字的肯定是把侧栏/评论一起吞进来的容器，跳过
+    for (const selector of ['h1', '[data-e2e*="desc"]', '[class*="title"]', '[class*="desc"]']) {
+      for (const el of scope.querySelectorAll(selector)) {
+        const text = el.textContent?.trim();
+        if (text && text.length > 2 && text.length <= 120) return text;
+      }
+    }
+    return document.title.replace(/\s*[-–—]\s*抖音.*$/, '').trim();
   }
 
   /**
@@ -64,6 +106,7 @@
         <button id="screenshot" title="截图当前帧" class="secondary-btn">📷<span class="key-badge">G</span></button>
       </div>
       <div class="frame-control-info">
+        <span id="video-info">未选中视频</span>
         <span id="frame-info">帧: 0</span>
       </div>
     `;
@@ -183,6 +226,26 @@
     } finally {
       isFrameStepping = false;
     }
+  }
+
+  /**
+   * 更新面板上显示的控制目标信息
+   */
+  function updateVideoInfo() {
+    if (!controlPanel) return;
+    const el = controlPanel.querySelector('#video-info');
+    if (!el) return;
+
+    if (!videoElement) {
+      el.textContent = '未选中视频';
+      el.removeAttribute('title');
+      return;
+    }
+
+    const label = getVideoLabel(videoElement);
+    const dims = videoElement.videoWidth ? `${videoElement.videoWidth}x${videoElement.videoHeight}` : '未解码';
+    el.textContent = `${label ? label + ' · ' : ''}${dims}`;
+    el.title = [label, dims, videoElement.currentSrc || videoElement.src].filter(Boolean).join('\n');
   }
 
   /**
@@ -483,77 +546,134 @@
   }
 
   /**
+   * 给视频元素绑定事件（每个元素只绑一次）
+   */
+  const boundVideos = new WeakSet();
+
+  function bindVideoEvents(video) {
+    if (boundVideos.has(video)) return;
+    boundVideos.add(video);
+
+    video.addEventListener('timeupdate', updateFrameDisplay);
+    video.addEventListener('ended', updateVideoInfo);
+
+    // 监听暂停事件，记录用户主动暂停状态
+    video.addEventListener('pause', () => {
+      // 如果是用户主动操作或正在步进，忽略
+      if (isUserControlling || isFrameStepping) return;
+      isPausedByUser = true;
+    });
+
+    // 监听播放事件
+    video.addEventListener('play', () => {
+      // 如果是用户主动操作，忽略
+      if (isUserControlling) return;
+
+      // 只在跳转状态且用户之前暂停时强制暂停
+      if (seekPreventAutoPlay && isPausedByUser) {
+        video.pause();
+        seekPreventAutoPlay = false;
+        return;
+      }
+
+      // 否则更新暂停状态
+      if (!seekPreventAutoPlay) {
+        isPausedByUser = false;
+      }
+    });
+
+    // 监听视频开始加载（新的视频）
+    video.addEventListener('loadeddata', () => {
+      // 重置状态
+      seekPreventAutoPlay = false;
+      updateVideoInfo();
+    });
+
+    // 监听进度条点击（input 事件通常用于进度条）
+    video.addEventListener('seeking', () => {
+      // 视频开始跳转
+      if (isPausedByUser) {
+        seekPreventAutoPlay = true;
+      }
+    });
+
+    // 监听跳转完成
+    video.addEventListener('seeked', () => {
+      // 跳转完成后，如果用户之前是暂停状态，强制暂停
+      if (seekPreventAutoPlay && isPausedByUser) {
+        video.pause();
+        seekPreventAutoPlay = false;
+      }
+    });
+  }
+
+  /**
+   * 切换控制目标
+   */
+  let lastTargetSrc = '';
+
+  function setTarget(video, reason) {
+    if (!video) return;
+    const switched = video !== videoElement;
+    videoElement = video;
+    bindVideoEvents(video);
+
+    if (!controlPanel) {
+      createControlPanel();
+    }
+
+    if (switched) {
+      // 换目标后旧视频的暂停状态不再适用
+      isPausedByUser = video.paused;
+      seekPreventAutoPlay = false;
+      console.log('[逐帧控制] 控制目标已切换（' + reason + '）:', video);
+      showShortcutHint(controlPanel, '已切换控制目标');
+    }
+
+    // 同一个 video 节点换源（弹层复用播放器）也要刷新显示，否则标题停留在上一条视频
+    const src = video.currentSrc || video.src || '';
+    if (switched || src !== lastTargetSrc) {
+      lastTargetSrc = src;
+      updateVideoInfo();
+    }
+
+    updateFrameDisplay();
+  }
+
+  function checkVideo(reason) {
+    const video = pickActiveVideo();
+    if (video) setTarget(video, reason);
+  }
+
+  /**
    * 初始化观察器，监听视频元素变化
    */
   function initObserver() {
-    // 定期检查视频元素
-    const checkInterval = setInterval(() => {
-      const video = findVideoElement();
-      if (video && video !== videoElement) {
-        videoElement = video;
-        console.log('[逐帧控制] 发现视频元素:', video.tagName);
+    // 兜底轮询：抖音有时不派发我们监听的变化
+    const pollInterval = setInterval(() => checkVideo('轮询'), 1000);
 
-        // 确保有控制面板
-        if (!controlPanel) {
-          createControlPanel();
-        }
+    // 弹层打开/关闭、卡片替换 video 都会改 DOM，比 1s 轮询及时得多
+    let mutationTimer = null;
+    const observer = new MutationObserver(() => {
+      if (mutationTimer) return;
+      mutationTimer = setTimeout(() => {
+        mutationTimer = null;
+        checkVideo('DOM 变化');
+      }, 250);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
-        // 监听时间更新
-        video.addEventListener('timeupdate', updateFrameDisplay);
+    // 点击卡片打开弹层这类操作，立刻重扫一次，不等 250ms 防抖
+    document.addEventListener('click', () => checkVideo('点击'), { capture: true });
 
-        // 监听暂停事件，记录用户主动暂停状态
-        video.addEventListener('pause', () => {
-          // 如果是用户主动操作或正在步进，忽略
-          if (isUserControlling || isFrameStepping) return;
-          isPausedByUser = true;
-        });
-
-        // 监听播放事件
-        video.addEventListener('play', () => {
-          // 如果是用户主动操作，忽略
-          if (isUserControlling) return;
-
-          // 只在跳转状态且用户之前暂停时强制暂停
-          if (seekPreventAutoPlay && isPausedByUser) {
-            video.pause();
-            seekPreventAutoPlay = false;
-            return;
-          }
-
-          // 否则更新暂停状态
-          if (!seekPreventAutoPlay) {
-            isPausedByUser = false;
-          }
-        });
-
-        // 监听视频开始加载（新的视频）
-        video.addEventListener('loadeddata', () => {
-          // 重置状态
-          seekPreventAutoPlay = false;
-        });
-
-        // 监听进度条点击（input 事件通常用于进度条）
-        video.addEventListener('seeking', (e) => {
-          // 视频开始跳转
-          if (isPausedByUser) {
-            seekPreventAutoPlay = true;
-          }
-        });
-
-        // 监听跳转完成
-        video.addEventListener('seeked', (e) => {
-          // 跳转完成后，如果用户之前是暂停状态，强制暂停
-          if (seekPreventAutoPlay && isPausedByUser) {
-            video.pause();
-            seekPreventAutoPlay = false;
-          }
-        });
-      }
-    }, 1000);
+    // 首次立即扫一遍，不用等 1 秒
+    checkVideo('初始');
 
     // 页面卸载时清理
     window.addEventListener('unload', () => {
-      clearInterval(checkInterval);
+      clearInterval(pollInterval);
+      observer.disconnect();
+      clearTimeout(mutationTimer);
       if (controlPanel) {
         controlPanel.remove();
         controlPanel = null;
@@ -640,12 +760,27 @@
     stepFrame,
     getVideoElement: () => videoElement,
     getCurrentTime: () => videoElement?.currentTime || 0,
-    setStepSize: (seconds) => { FRAME_STEP = seconds; },
     resetPanelPosition: resetPosition,
     getPanelPosition: () => ({ ...panelPosition }),
     setPauseState,
     togglePause,
-    captureFrame
+    captureFrame,
+    rescan: () => { checkVideo('手动'); return videoElement; },
+    getTargetInfo: () => videoElement ? {
+      label: getVideoLabel(videoElement),
+      size: `${videoElement.videoWidth}x${videoElement.videoHeight}`,
+      duration: videoElement.duration,
+      src: videoElement.currentSrc || videoElement.src,
+      visibleArea: visibleArea(videoElement),
+      video: videoElement
+    } : null,
+    listCandidates: () => Array.from(document.querySelectorAll('video')).map(v => ({
+      area: visibleArea(v),
+      size: `${v.videoWidth}x${v.videoHeight}`,
+      src: (v.currentSrc || v.src || '').slice(0, 60),
+      isActive: v === videoElement,
+      video: v
+    }))
   };
 
 })();
