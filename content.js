@@ -650,7 +650,7 @@
    */
   function initObserver() {
     // 兜底轮询：抖音有时不派发我们监听的变化
-    const pollInterval = setInterval(() => checkVideo('轮询'), 1000);
+    setInterval(() => checkVideo('轮询'), 1000);
 
     // 弹层打开/关闭、卡片替换 video 都会改 DOM，比 1s 轮询及时得多
     let mutationTimer = null;
@@ -668,17 +668,8 @@
 
     // 首次立即扫一遍，不用等 1 秒
     checkVideo('初始');
-
-    // 页面卸载时清理
-    window.addEventListener('unload', () => {
-      clearInterval(pollInterval);
-      observer.disconnect();
-      clearTimeout(mutationTimer);
-      if (controlPanel) {
-        controlPanel.remove();
-        controlPanel = null;
-      }
-    });
+    // 不监听 unload：抖音的 Permissions-Policy 禁用了它，注册会报策略违规；
+    // 页面跳转时 content script 环境整体销毁，轮询和 observer 无需手动清理
   }
 
   // 启动
